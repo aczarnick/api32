@@ -1,13 +1,6 @@
---[[
-    Title          : Library for easy way of creating HTTP JSON Api Service for ESP32
-    Author         : Alija Bobija
-    Author-Website : https://abobija.com
-    GitHub Repo    : https://github.com/abobija/api32
-    
-    Dependencies:
-        - sjson
-        - encoder
-]]
+local base64 = require("base64")
+local json = require("rxi-json-lua")
+local socket = require("socket")
 
 local Api32 = {}
 
@@ -23,14 +16,14 @@ local function str_split(inputstr, sep)
     if sep == nil then sep = "%s" end
     local result = {}
     for str in inputstr:gmatch("([^"..sep.."]+)") do table.insert(result, str) end
-    
+    print(result)
     return result
 end
 
 local function json_parse(json_str)
     local ok
     local result
-    ok, result = pcall(sjson.decode, json_str)
+    ok, result = pcall(json.decode, json_str)
 
     if ok then return result end
     return nil
@@ -39,7 +32,7 @@ end
 local function json_stringify(table)
     local ok
     local json
-    ok, json = pcall(sjson.encode, table)
+    ok, json = pcall(json.encode, table)
     
     if ok then return json end
     return nil
@@ -72,7 +65,7 @@ local function get_auth_from_http_header(hlines)
 
         local ok
         local decoded_key
-        ok, decoded_key = pcall(encoder.fromBase64, key)
+        ok, decoded_key = pcall(base64.decode, key)
         
         key = nil
 
@@ -93,6 +86,7 @@ local function get_auth_from_http_header(hlines)
 end
 
 local function parse_http_header(request, params)
+    print("Parsing HTTP Header")
     local options = {
         parse_auth = false
     }
@@ -105,14 +99,14 @@ local function parse_http_header(request, params)
 
     if #hlines > 0 then
         local hline1_parts = str_split(hlines[1])
-        
+        print("hlines > 0")
         if #hline1_parts == 3 and hline1_parts[3] == 'HTTP/1.1' then
             local result = {
                 method = hline1_parts[1],
                 path   = hline1_parts[2],
                 std    = hline1_parts[3]
             }
-
+            print("htttp/1.1")
             hline1_parts = nil
             
             result.content_length = get_http_header_value('Content-Length', hlines)
@@ -151,7 +145,7 @@ Api32.create = function(conf)
     local self = extend({
         http_body_min = 10,
         http_body_max = 512,
-        port          = 80,
+        port          = 3000,
         auth          = nil
     }, conf)
     
@@ -183,7 +177,8 @@ Api32.create = function(conf)
         return nil
     end
     
-    local srv = net.createServer(net.TCP, 30)
+    --local srv = net.createServer(net.TCP, 30)
+    local server = assert(socket.bind('*', self.port))
 
     local sending = false
     local http_header = nil
@@ -236,7 +231,12 @@ Api32.create = function(conf)
             end
         end
         
-        sck:on('sent', send)
+        --sck:on('sent', send)
+
+        local file_exists = function(name)
+            local f=io.open(name,"r")
+            if f~=nil then io.close(f) return true else return false end
+         end
         
         local response_status = '200 OK'
         local content_type = 'application/json'
@@ -270,14 +270,14 @@ Api32.create = function(conf)
                         -- ep.handler is filename in this case
                         http_req_body_buffer = nil
 
-                        if not file.exists(ep.handler) then
+                        if not file_exists(ep.handler) then
                             response_status = '404 Not Found'
                         else
                             if str_ends_with(ep.handler, 'html') then
                                 content_type = 'text/html'
                             end
                             
-                            stream_file = file.open(ep.handler)
+                            stream_file = io.open(ep.handler)
                         end
                     end
                 end
@@ -359,12 +359,25 @@ Api32.create = function(conf)
         end
     end
 
-    srv:listen(self.port, function(conn)
-        stop_rec()
+    local client = assert(server:accept())
+    client:settimeout(10)
+    local line, error = client:receive()
+
+    print("got here")
+    if not error then
+        print("no error")
+        print(line)
+        on_receive(client, line)
+    end
+    print(error)
+
+
+    -- srv:listen(self.port, function(conn)
+    --     stop_rec()
     
-        conn:on('receive', on_receive)
-        conn:on('disconnection', stop_rec)
-    end)
+    --     conn:on('receive', on_receive)
+    --     conn:on('disconnection', stop_rec)
+    -- end)
 
     return self
 end
