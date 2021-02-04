@@ -16,7 +16,6 @@ local function str_split(inputstr, sep)
     if sep == nil then sep = "%s" end
     local result = {}
     for str in inputstr:gmatch("([^"..sep.."]+)") do table.insert(result, str) end
-    print(result)
     return result
 end
 
@@ -86,7 +85,6 @@ local function get_auth_from_http_header(hlines)
 end
 
 local function parse_http_header(request, params)
-    print("Parsing HTTP Header")
     local options = {
         parse_auth = false
     }
@@ -99,14 +97,12 @@ local function parse_http_header(request, params)
 
     if #hlines > 0 then
         local hline1_parts = str_split(hlines[1])
-        print("hlines > 0")
         if #hline1_parts == 3 and hline1_parts[3] == 'HTTP/1.1' then
             local result = {
                 method = hline1_parts[1],
                 path   = hline1_parts[2],
                 std    = hline1_parts[3]
             }
-            print("htttp/1.1")
             hline1_parts = nil
             
             result.content_length = get_http_header_value('Content-Length', hlines)
@@ -176,8 +172,7 @@ Api32.create = function(conf)
 
         return nil
     end
-    
-    --local srv = net.createServer(net.TCP, 30)
+
     local server = assert(socket.bind('*', self.port))
 
     local sending = false
@@ -209,7 +204,12 @@ Api32.create = function(conf)
             local close_socket = false
             
             if #res > 0 then
-                _sck:send(table.remove(res, 1))
+                local response = table.remove(res, 1)
+                print(response)
+                local bytes, msg = _sck:send(response)
+                if not bytes then
+                    print(msg)
+                end
             elseif stream_file ~= nil then
                 local line = stream_file:readline()
                 
@@ -231,8 +231,6 @@ Api32.create = function(conf)
             end
         end
         
-        --sck:on('sent', send)
-
         local file_exists = function(name)
             local f=io.open(name,"r")
             if f~=nil then io.close(f) return true else return false end
@@ -260,6 +258,7 @@ Api32.create = function(conf)
                     http_header = nil
                     
                     if type(ep.handler) == 'function' then -- custom handler
+                        print("function handler?")
                         local jreq = json_parse(http_req_body_buffer)
                         http_req_body_buffer = nil
                         local jres = ep.handler(jreq)
@@ -359,25 +358,23 @@ Api32.create = function(conf)
         end
     end
 
-    local client = assert(server:accept())
-    client:settimeout(10)
-    local line, error = client:receive()
+    while true do
 
-    print("got here")
-    if not error then
-        print("no error")
-        print(line)
-        on_receive(client, line)
+        local client = assert(server:accept())
+        client:settimeout(10)
+
+        local source = socket.source("http-chunked", client)
+        --local line, error = client:receive('*a')
+        local line = source.string()
+
+        if not error then
+            print(line)
+            on_receive(client, line)
+        end
+
+        client:shutdown()
+        client:close()
     end
-    print(error)
-
-
-    -- srv:listen(self.port, function(conn)
-    --     stop_rec()
-    
-    --     conn:on('receive', on_receive)
-    --     conn:on('disconnection', stop_rec)
-    -- end)
 
     return self
 end
